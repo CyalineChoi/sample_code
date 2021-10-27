@@ -1,0 +1,496 @@
+/* Yannan Li, MD MPH, Oct 15th, 2021 resume */
+/* The TEEN HEED study has 147 subjects with more than 600 variables, assessed in 3 time points: baseline, 5 month, and 12 month */
+/* revised to reduce repeated code and only use 1-2 variables for each example */
+
+/* import intent to treat datasets*/
+options msglevel=I;
+FILENAME REFFILE '/home/u39221714/2 NEW TEENHEED_baseline_147_clean.xlsx';
+
+PROC IMPORT DATAFILE=REFFILE
+	DBMS=XLSX
+	OUT=th147;
+	GETNAMES=YES;
+RUN;
+
+PROC contents DATA=th147; RUN;
+
+/* replace variable with repeated measurement values (first time measurment is not valid, need to be replaced) */
+data th0;
+set th147;
+if fasting_gluc_v2>0 then fasting_gluc = fasting_gluc_v2; drop fasting_gluc_v2;
+if hr2_glucose_v2>0 then hr2_glucose = hr2_glucose_v2; drop hr2_glucose_v2;
+run;
+
+/* validate the frequency for new varaible values */
+proc univariate data=th0; class randomization_assign;
+var fasting_gluc hr2_glucose;
+run;
+
+/* macro for replacing version 2 values into orginal variable for the rest of variables */
+%MACRO master1(var);
+data th0;
+set th0;
+if &var._v3>0 then &var = &var._v3; drop &var._v3;
+run;
+%MEND;
+%master1(tanita_weight);
+%master1(bmi_percent);
+
+/* change values to missing if out of clinical range */
+data th_clean;
+set th0;
+
+/*glucose*/
+if fasting_gluc<70 then fasting_gluc=.; *fasting glucose cannot exceed 70 unit;
+if hr2_glucose<70 then hr2_glucose=.; *2 hr glucose cannot exceed 70 unit;
+
+/*A1c*/
+if hba1c<3.5 then hba1c=.;
+
+/* bmi_perc*/
+if bmi_percent<85 then bmi_percent=.;
+
+/* waist_ave */
+if waist_ave<55 then waist_ave= waist_ave*2.54;
+
+/* cholesterol_total */
+if cholesterol_total<66 then cholesterol_total=.; 
+if cholesterol_total>554 then cholesterol_total=.; 
+
+/* cholesterol_ldl, conditioning on the value of triglycerides */
+if triglycerides<50 then cholesterol_ldl=.;
+if triglycerides>400 then cholesterol_ldl=.;
+
+/* cholesterol_hdl */
+if cholesterol_hdl < 25 then cholesterol_hdl=.;
+
+/* insulin */
+if insulin<0.7 then insulin=.;
+if insulin>231.2 then insulin=.;
+
+/* other MetS variables: z_score_n, sbp_ave, triglycerides */
+if z_score>4 then z_score=.;
+run;
+
+/* display dataset to validate */
+proc print data=th_clean (obs=20); 
+run;
+
+/* setting up derived variables */
+/*
+SES_1 = Self_efficacy scale 1 = q34 + q35 + q36 + q37 + q38 + q39 + q40 + q41
+SES_2 = Self efficacy scale 2 = q42 + q43 + q44 + q45 + q46
+*/
+
+data th_SES;	
+set th_clean;
+IF not missing(q34) and not missing(q35) and not missing(q36) and not missing(q37) and not missing(q38) and not missing(q39) and not missing(q40) and not missing(q41)	
+	then SES_1 = q34 + q35 + q36 + q37 + q38 + q39 + q40 + q41;
+IF not missing(q42) and not missing(q43) and not missing(q44) and not missing(q45) and not missing(q46) 	
+	then SES_2 = q42 + q43 + q44 + q45 + q46;
+run;	
+
+/* macro 2 for deriving continuous variable */
+/*mvpa scale - q84-86, convert q84-87, 91-93 from char to num */
+data th_q84;
+set th_EE;
+run;
+%MACRO mvpa(var, format);
+data th_q84;
+set th_q84;
+if &var=1 then &var=0;
+if &var=2 then &var=0.3;
+if &var=3 then &var=1.3;
+if &var=4 then &var=1.3;
+if &var=5 then &var=3.3;
+if &var=6 then &var=3.3;
+if &var=7 then &var=5.3;
+if &var=8 then &var=5.3;
+if &var=9 then &var=8;
+if &var=10 then &var=8;
+run; 
+%MEND;
+%mvpa(q84, q85_.);
+%mvpa(q85, q85_.);
+%mvpa(q86, q85_.);
+%mvpa(q91, q85_.);
+%mvpa(q92, q85_.);
+%mvpa(q93, q85_.);
+
+/* devided by 7 to estimate daily instead of weekly */
+data th_q85;
+set th_q84;
+mvpa=q84+q85;
+mvpa_d=(q84+q85)/7;
+run;
+
+/* recode */
+data th_recode;
+set th_q85;
+
+/* age - continuous */
+if q228=1 then age_continuous=13;
+if q228=2 then age_continuous=14;
+
+/* age - categorical */
+if q228=1 then age_cat="13-15";
+if q228=4 then age_cat="16-19";
+
+/*race and ethnicity */
+if q229=1 then q229_c=1;/*White*/
+if q229=2 then q229_c=2;/*Black*/
+if q229=3 then q229_c=1;/*Asian*/
+*if q229=4 then q229_c="Native Hawaiian or Other Pacific Islander"; *no data point for this category;
+*if q229=5 then q229_c="American Indian or Alaskan Native"; *no data point for this category;
+if q229=6 then q229_c=3;/*Hispanic*/
+run;
+
+/* convert data type for future analysis if not appropriate */
+data th_recode;
+set th_recode;
+z_score_n = input(z_score, 8.);
+run;
+
+/* MetS score calculation: MetS=0.2804*z_score_n+0.0257*cholesterol_hdl+0.0189*sbp_ave+0.6240*log(triglycerides)+0.0140*fasting_gluc-4.9310 */
+data race_unknown; *replace dataset name with different subgroups;
+set th_recode;
+MetS=0.2804*z_score_n+0.0257*cholesterol_hdl+0.0189*sbp_ave+0.6240*log(triglycerides)+0.0140*fasting_gluc-4.9310;
+run;
+/* validate by examing the dataset */
+proc print data=male_other(obs=10); var record_id mets;run;
+
+/* sorting and merging datasets with MetS */
+proc sort data=metscore; by record_id; run;
+data metscore;
+set race_unknown male_other male_black male_hispanic female_other female_black female_Hispanic;
+by record_id;
+run;
+
+/* reformating */
+PROC FORMAT;
+Value agreef
+		1 = 'Strongly Agree'
+		2 = 'Agree a little'
+		3 = 'Disagree a little'
+		4 = 'Strongly Disagree'
+;
+RUN;
+
+/* preliminary analysis */
+/* writing results into local file */
+ods rtf file = "/home/u39221714/TEENHEED_BASELINE.rtf";
+
+/* demographic */
+/* means by single variable */
+proc means data=metscore mean median stddev q1 q3 min max n nmiss;var q228; run;
+
+/* means by bi variable */
+proc means data=metscore mean median stddev q1 q3 min max n nmiss;var q228;by sex; run;
+
+/* difference between 2 groups */
+proc npar1way data = metscore wilcoxon;
+  class sex;
+  var age_continuous;
+run;
+proc freq data=metscore; 
+table age_categorical*sex/chisq;
+run;
+
+/* survey (categorical) data */
+/* macro 3 */
+%MACRO baseline_survey_cat(var, format);
+*Analysis for &var (Overall, Sex, Race （&var*q229_c）, Age (&var*Age), Parent Country （&var*Parent_Country_of_Birth） and Parent Education (&var*Parent_Education));
+PROC FREQ DATA = metscore;
+TABLES &var
+&var*Sex
+*/ chisq fisher;
+/ expected chisq fisher nocol norow nopercent;
+FORMAT &var &format;
+RUN;
+%MEND;
+%baseline_survey_cat(q1, agree_binaryf.);
+
+/* clinical measurement (continuous) data*/
+proc freq data=th_socioeco; table sex*pre_diab;run;
+
+proc means data=th_sex_comparison mean median stddev q1 q3 min max n nmiss;
+var fasting_gluc hr2_glucose; 
+by sex;
+run;
+
+%MACRO wilcoxon(var);
+proc npar1way data = th_sex_comparison wilcoxon;
+  class sex;
+  var &var.;
+run;
+%MEND;
+%wilcoxon(fasting_gluc);
+%wilcoxon(hr2_glucose);
+
+/* primary outcome 1 - delta1=5month-baseline deltaB=12month-baseline */
+/* difference in intervention and control group, respectively */
+*continous variables;
+*intervention group -- Wilcoxon Signed-rank test - nonparametric for pairted-ttest;
+%macro delta1(datX, varX, num);
+data temp; set &datX;
+      deltaA=&varX._5mo-&varX; deltaB=&varX._12m-&varX;
+      keep record_id randomization_assign &varX &varX._5mo &varX._12m deltaA deltaB;
+run;
+data BL&num;  set temp; length nVARc&num $50.; Time=1; nVAR&num=&varX; nVARc&num="&varX"; run;
+data FUA&num; set temp; length nVARc&num $50.; Time=2; nVAR&num=&varX._5mo; nVARc&num="&varX._5mo"; run;
+data FUB&num; set temp; length nVARc&num $50.; Time=3; nVAR&num=&varX._12m; nVARc&num="&varX._12m"; run;
+data Long&num; set
+      BL&num (drop=&varX &varX._5mo &varX._12m) 
+      FUA&num(drop=&varX &varX._5mo &varX._12m)
+      FUB&num(drop=&varX &varX._5mo &varX._12m);
+      rename deltaA=nDeltaA&num     deltaB=nDeltaB&num;
+run;
+proc sort data=Long&num; by record_id Time; run;
+
+proc summary data=temp; var deltaA; output out=dSummaryA
+      mean=dMean std=dSD Q1=dQ1 median=dMedian Q3=dQ3 min=dMin max=dMax n=dN nmiss=dNmiss;
+run;
+proc univariate data=temp; var deltaA ; ods output TestsForLocation=outA&num; run;
+data outA&num; set outA&num; length vars $50.; vars="&varX._5mo - &varX"; compare="05mon-baseline"; if Test="Signed Rank"; run;
+data outA&num; set outA&num(drop=Testlab Stat pType Mu0); set dSummaryA(drop=_TYPE_); run;
+
+proc summary data=temp; var deltaB; output out=dSummaryB
+      mean=dMean std=dSD Q1=dQ1 median=dMedian Q3=dQ3 min=dMin max=dMax n=dN nmiss=dNmiss;
+run;
+proc univariate data=temp; var deltaB ; ods output TestsForLocation=outB&num; run;
+data outB&num; set outB&num; length vars $50.; vars="&varX._12m - &varX"; compare="12mon-baseline"; if Test="Signed Rank"; run;
+data outB&num; set outB&num(drop=Testlab Stat pType Mu0); set dSummaryB(drop=_TYPE_); run;
+
+data out&num; set outA&num outB&num; run;
+%mend;
+*Intervention group;	
+%delta1(th_intervention, SES_1,1); run;	
+%delta1(th_intervention, SES_2,2); run;	
+
+data WSRpvalueA1; set out1-out2; Group="Intervention"; run;
+proc print data=WSRpvalueA1; run;
+data LongA1; merge Long1-Long40; by record_id; run;
+proc print data=LongA1(obs=5);run;
+
+* Control group;
+%delta1(th_control, SES_1,1); run;	
+%delta1(th_control, SES_2,2); run;	
+
+data WSRpvalueA0; set out1-out40; Group="Control"; run;
+proc print data=WSRpvalueA0; run;
+data LongA0; merge Long1-Long2; by record_id; run;
+proc print data=LongA0(obs=5);run;
+
+*combining continuous vars;
+data datLA; set LongA0 LongA1; run;
+proc print data=datLA(obs=5);run;
+proc sort data=datLA; by record_id time; run;
+
+/*  difference of difference */
+*A proc genmod --- continuous variables (identity link); 
+%macro deltaA(datX,num);
+%do i=1 %to &num;
+proc genmod data=&datX;
+      class record_id time(ref='1') randomization_assign(ref='0')/ param=ref;
+      model nVar&i=time randomization_assign time*randomization_assign;
+      repeated subject=record_id/ type=un modelse;
+      ods output GEEEmpPEst=dout&i;
+run;
+data dout&i; set dout&i; length vars $12.; vars="nVar&i"; run;
+%end;
+%mend;
+%deltaA(datLA,2);
+data doutA; set dout1-2; run;
+proc print data=doutA(where=(Parm in ("Time","randomization_assign","Time*randomization_a"))); run;
+
+/* ordinal and binary variables */
+*Ordinal variables -- Wilcoxon Signed-rank test - nonparametric for pairted-ttest;
+%macro delta2(datX, varX, formatX, num);
+data temp; set &datX;FORMAT &varX &formatX &varX._5mo &formatX &varX._12m &formatX ; 
+      deltaA=&varX._5mo-&varX; deltaB=&varX._12m-&varX;
+      keep record_id randomization_assign &varX &varX._5mo &varX._12m deltaA deltaB;
+run;
+data BL&num;  set temp; length nVARc&num $50.; Time=1; nVAR&num=&varX; nVARc&num="&varX"; run;
+data FUA&num; set temp; length nVARc&num $50.; Time=2; nVAR&num=&varX._5mo; nVARc&num="&varX._5mo"; run;
+data FUB&num; set temp; length nVARc&num $50.; Time=3; nVAR&num=&varX._12m; nVARc&num="&varX._12m"; run;
+data Long&num; set
+      BL&num (drop=&varX &varX._5mo &varX._12m) 
+      FUA&num(drop=&varX &varX._5mo &varX._12m)
+      FUB&num(drop=&varX &varX._5mo &varX._12m);
+      rename deltaA=nDeltaA&num     deltaB=nDeltaB&num;
+run;
+proc sort data=Long&num; by record_id Time; run;
+
+proc summary data=temp; var deltaA; output out=dSummaryA
+      mean=dMean std=dSD Q1=dQ1 median=dMedian Q3=dQ3 min=dMin max=dMax n=dN nmiss=dNmiss;
+run;
+proc univariate data=temp; var deltaA ; ods output TestsForLocation=outA&num; run;
+data outA&num; set outA&num; length vars $50.; vars="&varX._5mo - &varX"; compare="05mon-baseline"; if Test="Signed Rank"; run;
+data outA&num; set outA&num(drop=Testlab Stat pType Mu0); set dSummaryA(drop=_TYPE_); run;
+
+proc summary data=temp; var deltaB; output out=dSummaryB
+      mean=dMean std=dSD Q1=dQ1 median=dMedian Q3=dQ3 min=dMin max=dMax n=dN nmiss=dNmiss;
+run;
+proc univariate data=temp; var deltaB ; ods output TestsForLocation=outB&num; run;
+data outB&num; set outB&num; length vars $50.; vars="&varX._12m - &varX"; compare="12mon-baseline"; if Test="Signed Rank"; run;
+data outB&num; set outB&num(drop=Testlab Stat pType Mu0); set dSummaryB(drop=_TYPE_); run;
+
+data out&num; set outA&num outB&num; run;
+%mend;	
+*Intervention group;
+%delta2(th_intervention,q1,agree_binaryf.,1);
+%delta2(th_intervention,q2,agree_binaryf.,2);
+
+data WSRpvalueB1; set out1-out2; Group="Intervention"; run;
+proc print data=WSRpvalueB1; run;
+data LongB1; merge Long1-Long2; by record_id; run;
+proc print data=LongB1(obs=10); run;
+
+*Control group;
+%delta2(th_control,q1,agree_binaryf.,1);
+%delta2(th_control,q2,agree_binaryf.,2);
+
+data WSRpvalueB0; set out1-out2; Group="Control"; run;
+proc print data=WSRpvalueB0; run;
+data LongB0; merge Long1-Long2; by record_id; run;
+proc print data= LongB0(obs=10);run;
+
+*combining ordinal vars;
+data datLB; set LongB0 LongB1; run;
+proc print data=datLB(obs=5); run;
+proc sort data=datLB; by record_id time; run;
+
+*B proc genmod ---  ordinal variables (multinomila cumlogit); 
+%macro deltaB(datX, varX, formatX, num);
+data temp; set &datX; FORMAT &varX &formatX; run;
+proc genmod data=&datX; 	
+	class record_id time(ref='1') randomization_assign(ref='0') &varX(ref=first)/ param=ref;
+	model &varX=time randomization_assign time*randomization_assign/
+ 					dist=multinomial link=cumlogit;
+	repeated subject=record_id/ modelse;
+	ods output GEEEmpPEst=dout&num;
+run;
+data dout&num; set dout&num; length vars $12.; vars="&varX"; run;
+%mend;
+%deltaB(datLB,nVar1,agree_binaryf.,1);
+%deltaB(datLB,nVar2,agree_binaryf.,2);
+
+data doutB; set dout1-dout2; run;
+proc print data=doutB(where=(Parm in ("Time","randomization_assign","Time*randomization_a"))); run; 
+
+*Binary variable --- McNemar test;
+%macro delta3(datX, varX, formatX, num);	
+data temp; set &datX; 
+FORMAT &varX &formatX. &varX._5mo &formatX. &varX._12m &formatX.; 			
+keep record_id randomization_assign &varX &varX._5mo &varX._12m;		
+run;			
+data BL&num; set temp; length bVARc&num $50.; Time=1; bVAR&num=&varX; bVARc&num="&varX";  run;			
+data FUA&num; set temp; length bVARc&num $50.; Time=2; bVAR&num=&varX._5mo; bVARc&num="&varX._5mo"; run;			
+data FUB&num; set temp; length bVARc&num $50.; Time=3; bVAR&num=&varX._12m; bVARc&num="&varX._12m"; run;			
+data Long&num; 
+set BL&num(drop=&varX &varX._5mo &varX._12m) 
+	FUA&num(drop=&varX &varX._5mo &varX._12m) 
+	FUB&num(drop=&varX &varX._5mo &varX._12m); run;
+proc sort data=Long&num; by record_id Time; run;
+
+proc freq data = temp; 
+tables &varX*&varX._5mo/agree nocum norow nocol nopercent;
+ods output CrossTabFreqs=dSummaryA;ods output McNemarsTest=outA&num;RUN;
+proc freq data = temp;
+tables &varX*&varX._12m/agree nocum norow nocol nopercent;
+ods output CrossTabFreqs=dSummaryB;ods output McNemarsTest=outB&num;RUN;
+
+data outA&num; set outA&num; length vars $50.; vars="&varX._5mo - &varX"; compare="05mon-baseline"; 
+Test = "McNemar Test"; run;
+data outB&num; set outB&num; length vars $50.; vars="&varX._12m - &varX"; compare="12mon-baseline"; 
+Test = "McNemar Test"; run;
+
+data dSummaryA1; set dSummaryA; n= _N_; if n=1 then dNa=Frequency; if n^=1 then delete; keep dNa;run;
+data dSummaryA2; set dSummaryA; n= _N_; if n=2 then dNb=Frequency; if n^=2 then delete; keep dNb;run;
+data dSummaryA3; set dSummaryA; n= _N_; if n=4 then dNc=Frequency; if n^=4 then delete; keep dNc;run;
+data dSummaryA4; set dSummaryA; n= _N_; if n=5 then dNd=Frequency; if n^=5 then delete; keep dNd;run;
+data dSummaryA5; set dSummaryA; n= _N_; if n=9 then dNmiss=Missing; if n=9 then dN=Frequency;
+	totN=sum(dN,dNmiss);if n^=9 then delete; keep dN dNmiss totN;
+run;
+data dSummaryB1; set dSummaryB; n= _N_; if n=1 then dNa=Frequency; if n^=1 then delete; keep dNa;run;
+data dSummaryB2; set dSummaryB; n= _N_; if n=2 then dNb=Frequency; if n^=2 then delete; keep dNb;run;
+data dSummaryB3; set dSummaryB; n= _N_; if n=4 then dNc=Frequency; if n^=4 then delete; keep dNc;run;
+data dSummaryB4; set dSummaryB; n= _N_; if n=5 then dNd=Frequency; if n^=5 then delete; keep dNd;run;
+data dSummaryB5; set dSummaryB; n= _N_; if n=9 then dNmiss=Missing; if n=9 then dN=Frequency;
+	totN=sum(dN,dNmiss);if n^=9 then delete; keep dN dNmiss totN;
+run;
+
+data outA&num; set outA&num; 
+set dSummaryA1; set dSummaryA2; set dSummaryA3; set dSummaryA4;set dSummaryA5; run;	
+data outB&num; set outB&num; 
+set dSummaryB1; set dSummaryB2; set dSummaryB3; set dSummaryB4;set dSummaryB5; run;	
+data out&num; set outA&num outB&num; run;			
+%mend;	
+*Intervention group;
+%delta3(th_intervention,q151, agreebi.,1);
+%delta3(th_intervention,q152, agreebi.,2);
+
+data WSRpvalueC1; set out1-out2; Group="Intervention"; run;
+proc print data=WSRpvalueC1; run;
+data LongC1; merge long1-long2;  by record_id time;  run;
+proc print data=LongC1(obs=10); run;
+proc sort data=LongC1; by record_id time;run;
+
+*Control group;
+%delta3(th_control,q151, agreebi.,1);
+%delta3(th_control,q152, agreebi.,2);
+
+data WSRpvalueC0; set out1-out2; Group="Control"; run;
+proc print data=WSRpvalueC0; run;
+data LongC0; merge Long1-Long2;  by record_id time;  run;
+proc print data=LongC0(obs=10);run;
+proc sort data=longC0;by record_id time; run;
+
+*combining binary vars;
+data datLC; set LongC0 LongC1; by record_id time;  run;
+proc print data=datLC(obs=20); run;
+
+*C proc genmod ---  binary variables (binary logit); 
+%macro deltaC(datX, varX, formatX, num);
+data temp; set &datX; FORMAT &varX &formatX.; run;
+proc genmod data=temp; 	
+    class record_id time(ref='1') randomization_assign(ref='0')/ param=ref;
+	model &varX=time randomization_assign time*randomization_assign/
+ 					dist=binomial link=logit;
+	repeated subject=record_id/ modelse;
+	ods output GEEEmpPEst=dout&num;
+run;
+data dout&num; set dout&num; length vars $12.; vars="&varX"; run;
+%mend;
+%deltaC(datLC,bVar1,agreebi.,1);
+%deltaC(datLC,bVar2,agreebi.,2);
+
+data doutC; set dout1-dout2; run;
+proc print data=doutC(where=(Parm in ("Time","randomization_assign","Time*randomization_a"))); run; 
+
+*merge three datasets;
+proc sort data=datLA;by record_id time; run;
+proc sort data=datLB;by record_id time; run;
+proc sort data=datLC;by record_id time; run;
+
+data datL; set datLA; set datLB; set datLC;by record_id time; run; 
+proc print data=datL(obs=10); run;
+
+/* export */
+*save the long format data;
+proc export 
+  data=datL
+  dbms=xlsx 
+  outfile="/folders/myfolders/TEENHEED_long_01302021.xlsx" 
+  replace;
+run;
+
+
+
+
+
+
+
+
+
+

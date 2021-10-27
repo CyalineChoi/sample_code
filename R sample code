@@ -1,0 +1,175 @@
+#recent plottings
+
+# networkx plotting
+
+# preparation
+install.packages("network")
+library(tidyverse)
+library(network)
+
+#import data 
+edge_list <- tibble(from = c(9,4,6,1,5,4,5,6,7,1,14,1,8,4,6,7,10,2,1,4,6,7,8,1,8,16,21), to = c(10,6,7,7,8,9,10,10,10,10,11,15,16,16,18,18,18,18,19,21,21,21,21,21,22,22,22,22))
+node_b <- c(" 1 Ajax Cleanser with Bleach Powder",
+            " 2 Ajax Dishwashing Liquid Dish Soap -  Lavender",
+            " 3 Baking Soda",
+            " 4 Clorox Clean Up Cleaner + Bleach",
+            " 5 Clorox Disinfecting Bathroom Cleaner Spray Bottle",
+            " 6 Clorox Regular Liquid Bleach",
+            " 7 Clorox Toilet Bowl Cleaner with Bleach",
+            " 8 Comet Cleaner with Bleach Powder",
+            " 9 Easy-Off Fume Free Oven Cleaner - Lemon Scent",
+            " 10 Easy-Off Heavy Duty Oven Cleaner - Fresh Scent",
+            " 11 Fabuloso All-Purpose Cleaner",
+            " 12 Fantastik¬Æ All-Purpose Cleaner",
+            " 13 Gain Ultra Dishwashing Liquid Dish Soap - Original",
+            " 14 Lysol Clean & Fresh Multi-Surface Cleaner",
+            " 15 Lysol¬Æ Brand All Purpose Cleaner",
+            " 16 Mr. Clean Antibacterial Cleaner with Summer Citrus",
+            " 17 Mr. Clean Multi-Purpose Cleaner - Lemon",
+            " 18 Murphy Oil Soap Wood Cleaner - Original",
+            " 19 Palmolive Ultra Dishwashing Liquid - Original",
+            " 20 Pine-Sol Multi-Surface Cleaner",
+            " 21 Soft Scrub Cleanser with Bleach Surface Cleaner",
+            " 22 Soft Scrub Cleanser with Oxi",
+            " 23 Soft Scrub Total All Purpose Cleaner",
+            " 24 Sun Dish Soap with Sensational Scents - Lemon",
+            " 25 Vinegar",
+            " 26 Windex Cleaner Original",
+            " 27 Windex Disinfectant Multi-Surface Cleaner Spray")
+
+node_list <- data.frame(node_b)%>% rowid_to_column("id")
+
+weight_list <- tibble(weight = c(3,2,2,2,2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1))
+
+nodes <- as.data.frame(node_list)
+edges <- as.data.frame(edge_list) %>% rowid_to_column("id")
+weight <- as.data.frame(weight_list) %>% rowid_to_column("id")
+
+total <- merge(edges, weight, by="id")
+total
+
+edges <- select(total, from, to, weight)
+edges
+
+#menthod 1 regular igraph
+detach(package:network)
+rm(routes_network)
+install.packages("igraph")
+library(igraph)
+routes_igraph <- graph_from_data_frame(d = edges, vertices = nodes, directed = TRUE)
+class(routes_igraph)
+plot1 <- plot(routes_igraph, edge.arrow.size = 0.2)
+
+#2 igraph with gggraph
+install.packages("tidygraph")
+install.packages("ggraph")
+library(tidygraph)
+library(ggraph)
+
+routes_tidy <- tbl_graph(nodes = nodes, edges = edges, directed = TRUE)
+routes_igraph_tidy <- as_tbl_graph(routes_igraph)
+class(routes_tidy)
+class(routes_igraph_tidy)
+class(routes_igraph)
+
+routes_tidy
+
+routes_tidy %>% 
+  activate(edges) %>% 
+  arrange(desc(weight))
+
+ggraph(routes_tidy) + geom_edge_link() + geom_node_point() + theme_graph()
+
+ggraph(routes_tidy, layout = "graphopt") + 
+  geom_node_point() +
+  geom_edge_link(aes(width = weight), alpha = 0.8) + 
+  scale_edge_width(range = c(0.2, 2)) +
+  #geom_node_text(repel = TRUE) +
+  #labs(edge_width = "Letters") +
+  theme_graph()
+
+#method 3 interactive network
+installed.packages("visNetwork")
+installed.packages("networkD3")
+library(visNetwork)
+library(networkD3)
+
+visNetwork(nodes, edges)
+edges <- mutate(edges, width = weight/5 + 1)
+visNetwork(nodes, edges) %>% 
+  visIgraphLayout(layout = "layout_with_fr") %>% 
+  visEdges(arrows = "middle")
+
+nodes_d3 <- mutate(nodes, id = id - 1)
+edges_d3 <- mutate(edges, from = from - 1, to = to - 1)
+
+forceNetwork(Links = edges_d3, Nodes = nodes_d3, Source = "from", Target = "to", 
+             NodeID = "node_b", Group = "id", Value = "weight", 
+             opacity = 1, fontSize = 16, zoom = TRUE)
+
+# bar plots
+install.packages("ggpubr")
+install.packages("GGally")
+install.packages("ggthemes")
+install.packages("tidyverse")
+install.packages("ggridges")
+require(gridExtra)
+install.packages("devtools")
+library(devtools)
+library(ggpubr)
+library(grid)
+library(GGally)
+library(readxl)
+library(ggthemes)
+library(tidyr)
+library(tidyverse)
+library(plyr)
+library(dplyr)
+library(patchwork)
+library(ggridges)
+library(scales)  # for percentage scales
+
+remove.packages("ggplot2") # Unisntall ggplot
+install.packages("ggplot2") # Install it again
+library(ggplot2) # Load the librarie (you have to do this one on each new session)
+
+TEENHEED_89  <- read_excel("2 TEENHEED_master_05102021.xlsx")
+View(TEENHEED_89)
+
+#cholesterol_total plotting
+plot1 <- 
+  TEENHEED_89 %>% 
+  mutate(time = as.factor(time)) %>% 
+  filter(time != 2) %>% 
+  filter(randomization_assign != 0) %>% 
+  group_by(time) %>% 
+  ggplot(aes(x = time, y = cholesterol_total, group = time, fill = time)) +
+  geom_boxplot() +
+  theme(legend.position = "none") +
+  labs(title="Intervention group")+
+  labs(x= "Time", y = "Total Cholesterol Level (mg/dL)")+
+  scale_x_discrete(breaks=c("1","3"),
+                   labels=c("Baseline", "12-month"))+
+  theme(axis.text.x = element_text(size=12))+
+  scale_y_continuous(limits=c(50, 300))
+plot2 <-
+  TEENHEED_89 %>% 
+  mutate(time = as.factor(time)) %>% 
+  filter(time != 2) %>% 
+  filter(randomization_assign != 1) %>% 
+  group_by(time) %>% 
+  ggplot(aes(x = time, y = cholesterol_total, group = time, fill = time)) +
+  geom_boxplot() +
+  theme(legend.position = "right") +
+  labs(x= "Time", y = "Total Cholesterol Level (mg/dL)")+
+  scale_x_discrete(breaks=c("1","3"),
+                   labels=c("Baseline", "12-month"))+
+  scale_fill_discrete(name = "Time", labels = c("Baseline", "12-month"))+
+  labs(title="Control group")+
+  labs(caption='Change in intervention differed from change in control, P=0.0058')+
+  theme(plot.caption = element_text(size = 12, face = "bold"))+
+  theme(axis.text.x = element_text(size=12))+
+  scale_y_continuous(limits=c(50, 300))
+
+plot <- plot1+plot2
+plot
