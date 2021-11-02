@@ -1,0 +1,18 @@
+-------------------------------------------------------------------------------
+              storage  display     value
+variable name   type   format      label      variable label
+-------------------------------------------------------------------------------
+paf             int    %9.0g                  facility number
+sex             str1   %9s                    sex
+race            str1   %9s                    race
+id              str10  %10s                   pseudo pt id
+age             int    %9.0g                  age
+pzip            str5   %9s                    patient zip code
+dx1             str5   %9s                    principal diagnosis
+dx2             str5   %9s                    second diagnosis
+dx3             str5   %9s                    third diagnosis
+pr1             str4   %9s                    principal procedure
+pr2             str4   %9s                    second procedure
+pr3             str4   %9s                    third procedure
+att_id          str9   %9s                    attending physician id
+-------------------------------------------------------------------------------
