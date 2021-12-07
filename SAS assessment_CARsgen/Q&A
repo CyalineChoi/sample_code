@@ -1,0 +1,138 @@
+
+目录
+SAS Basic programming	1
+Question 1	1
+Question 2	2
+Question 3	3
+Clinical Trials Programming	4
+Question 1	4
+Question 2	5
+
+
+SAS Basic programming
+Question 1
+Given the following SAS data sets ONE and TWO:
+ 
+ 
+Could you write a SAS program to create data set THREE using SQL procedure？
+proc sql;
+create table THREE as
+select coalesce (ONE.NUM,TWO.NUM) as NUM,CHAR1,CHAR2
+from ONE as x full join TWO as y
+on x.NUM = y.NUM;
+quit;
+ 
+Question 2
+Given the following data set WORK.CLASS: 
+Name	Sex	Age	Height	Weight
+Alfred	M	14	69	112.5
+Alice	F	13	56.5	84
+Barbara	F	13	65.3	98
+Carol	F	14	62.8	102.5
+Henry	M	14	63.5	102.5
+James	M	12	57.3	83
+Jane	F	12	59.8	84.5
+Janet	F	15	62.5	112.5
+Jeffrey	M	13	62.5	84
+John	M	12	59	99.5
+Joyce	F	11	51.3	50.5
+Judy	F	14	64.3	90
+Louise	F	12	56.3	77
+Mary	F	15	66.5	112
+Philip	M	16	72	150
+Robert	M	12	64.8	128
+Ronald	M	15	67	133
+Thomas	M	11	57.5	85
+William	M	15	66.5	112
+ 
+Could you write a SAS program to create below scatter plot and export it to a rtf file? 
+
+ 
+ods rtf file="scattorplot.rtf";
+proc sgplot data=WORK.CLASS;
+scatter x=salbegin y=weight / group=sex;
+run;
+ods rtf close;
+
+Question 3
+Given the following data set WORK.DEMO:
+PTID   Sex Age Height Weight treatment
+689574 M   15   80.0   115.5    A
+423698 F   14   65.5   90.0     B
+758964 F   12   60.3   87.0     A
+653347 F   14   62.8   98.5     B
+493847 M   14   63.5   102.5    A
+500029 M   12   57.3   83.0     B
+513842 F   12   59.8   84.5     A
+515151 F   15   62.5   112.5    B
+522396 M   13   62.5   84.0     A
+534787 M   12   59.0   99.5     B
+875642 F   11   51.3   50.5     B
+879653 F   15   75.3   105.0    A
+542369 F   12   56.3   77.0     B
+698754 F   11   50.5   70.0     A
+656423 M   16   72.0   150.0    A
+785412 M   12   67.8   121.0    A
+785698 M   16   72.0   110.0    A
+763284 M   11   57.5   85.0     B
+968743 M   14   60.5   85.0     B
+457826 M   18   74.0   165.0    B
+Could you write a SAS program to create below table and export it to a rtf file? 
+Summary of demographics 
+Sex: Female
+	Treatment A
+  (N=xx)		Treatment B
+(N=xx)
+Age, n(%)			
+<12	xx(xx.x)		xx(xx.x)
+>=12	xx(xx.x)		xx(xx.x)
+			
+Height			
+   n	xx		xx
+   Mean	xx.xx		xx.xx
+   SD	xx.xxx		xx.xxx
+   Min, Max	xx.x, xx.x		xx.x, xx.x
+			
+Weight			
+   n	xx		xx
+   Mean	xx.xx		xx.xx
+   SD	xx.xxx		xx.xxx
+   Min, Max	xx.x, xx.x		xx.x, xx.x
+Programming note: repeat above table for subject with SEX=M
+ods rtf file="demo.rtf";
+#create subsets for each sex
+data female; set WORK.DEMO; if sex=”M” then drop; run;
+data male; set WORK.DEMO; if sex=”F” then drop; run;
+#create summary for height and weight
+%MACRO means(datX);
+proc means data = &datX noprint n mean sd min max; 
+class height weight; 
+var treatment;
+%MEND;
+%means(female);
+%means(male);
+#report table using proc report
+%MACRO reports(datX);
+Proc report data=datX;
+…
+Run;
+%MEND;
+%means(female);
+%means(male);
+ods rtf close;
+
+
+Clinical Trials Programming 
+Question 1
+What SDTM domains are suggested to tabulate tumor related information in CDISC data standards and what are required and expected variables in those domains.
+1.	TU – TUMETHOD, TULAT, TUDIR, TUPORTOT, TUTESTCD, TUMIDENT, TUORRES, TUDTC, VISIT, TUTEST, TUGRPID, TULNKID, etc.
+2.	TR – TRLNKID, TRTESTCD, TRTEST, TRPRRES, TRMETHOD, VISTIT, TRDTC, etc.
+3.	RS - RSEVAL, RSEVALID, RSLNKID, RSTEST, RSTESTCD, VISIT, RSORRES, RSLNKGRP, etc.
+
+Question 2
+TDM is one of CDISC data standards. What does TDM stand for? What domains are included in TDM and could you give a brief introduction of each domain?
+Trial Design Model
+Domains:
+1.	TE - Trial Elements – it describes all the elements as the basic building block that’s related to the administration of planned interventions. Planned Elements are described in the TE table with variables like TESTRL, TEENRL, TEDUR, etc.
+2.	TA - Trial Arms – it describes each arm (a planned sequence of Elements, and is often referred to as a treatment group), and rules for moving through elements (Branches and Transitions). TA tables contain variables like TAETORD, ETCD, TABRANCH, EPOCH, etc.
+Note: Send back all your answers, SAS code and created outputs.
